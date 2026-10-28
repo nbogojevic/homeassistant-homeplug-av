@@ -148,6 +148,31 @@ option sparingly because it sends extra management frames to the adapters.
   container may need `NET_RAW`, `NET_ADMIN`, or host networking depending on
   the deployment.
 
+### Polling fails with an AsyncSniffer timeout error
+
+Scapy 2.8 rejects the `timeout` argument in the `AsyncSniffer` constructor.
+Older versions of this integration can therefore discover adapters but fail
+all single-response polling with:
+
+```text
+Failed to poll adapter: 'timeout' isn't supported with AsyncSniffer. Use join(timeout=1)
+```
+
+Version 0.1.1 removes that constructor argument, waits until capture is ready
+before transmitting, and uses `join(timeout=...)` plus explicit stop/join
+cleanup. Both single-response polling and multi-response discovery clean up
+captures on timeouts and transmission failures. Response and collection
+windows use monotonic time. The Scapy dependency range, entity identities,
+and integration configuration are unchanged.
+
+The fix is maintained in the
+[`nbogojevic/homeassistant-homeplug-av` fork, branch
+`fix/scapy-asyncsniffer-timeout`](https://github.com/nbogojevic/homeassistant-homeplug-av/tree/fix/scapy-asyncsniffer-timeout).
+Until it is merged or released, the default upstream/HACS version does not
+include it. Back up the installed integration before installing that branch
+manually, then restart Home Assistant to load the updated Python code. Merely
+suppressing the warning does not restore link statistics.
+
 ### Adapters appear but stats are incomplete
 
 Different chipsets expose different management commands. Capability discovery
@@ -172,17 +197,26 @@ the macOS Wi-Fi MACNAT relay and VM soak harness.
 Create a development environment:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python -r requirements-dev.txt
 ```
 
 Run the fast tests:
 
 ```bash
-python -m pytest -q
-python -m compileall -q custom_components/homeplug_av tests tools
+.venv/bin/python -m pytest -q -o asyncio_default_fixture_loop_scope=function
+.venv/bin/python -m compileall -q custom_components/homeplug_av tests tools
+```
+
+The packet-capture regression tests run real Scapy threads against in-memory
+packet queues. They do not open raw sockets, require root, or send network
+traffic. CI tests Scapy 2.6.1, 2.7.0, and 2.8.0: the full suite on Python 3.14
+and the capture tests separately on Python 3.12. To run just the latter without
+installing Home Assistant:
+
+```bash
+uv run --no-project --python 3.12 --with pytest --with scapy==2.8.0 \
+  python -m pytest -q tests/test_pla_util_network.py
 ```
 
 Use the bundled utility directly when debugging the wire protocol:
