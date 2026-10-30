@@ -4,15 +4,49 @@ on:
   push:
     branches:
       - main
+      - "fix/**"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   tests:
-    name: Python tests
+    name: Python 3.14 / Scapy ${{ matrix.scapy }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scapy: ["2.6.1", "2.7.0", "2.8.0"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt "scapy==${{ matrix.scapy }}"
+
+      - name: Compile Python files
+        run: python -m compileall -q custom_components/homeplug_av tests tools
+
+      - name: Run tests
+        run: python -m pytest -q -o asyncio_default_fixture_loop_scope=function
+
+  network:
+    name: Python 3.12 / Scapy ${{ matrix.scapy }} capture tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scapy: ["2.6.1", "2.7.0", "2.8.0"]
 
     steps:
       - name: Check out repository
@@ -23,13 +57,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+      - name: Install capture test dependencies
+        run: python -m pip install "pytest>=8.3" "scapy==${{ matrix.scapy }}"
 
-      - name: Compile Python files
-        run: python -m compileall -q custom_components/homeplug_av tests tools
-
-      - name: Run tests
-        run: python -m pytest -q
+      - name: Run capture tests without Home Assistant or raw sockets
+        run: python -m pytest -q tests/test_pla_util_network.py
